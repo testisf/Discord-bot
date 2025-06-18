@@ -174,21 +174,26 @@ async def start_web_server():
     app.router.add_get('/', health_check)
     app.router.add_get('/status', status_endpoint)
     
+    # Render uses PORT environment variable, default to 10000 for Render
+    port = int(os.getenv('PORT', 10000))
+    
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Use port 8080 for Render compatibility
-    port = int(os.getenv('PORT', 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     
-    logger.info(f"Web server started on port {port}")
+    logger.info(f"Web server started on 0.0.0.0:{port}")
+    
+    # Keep the web server running indefinitely
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        await runner.cleanup()
 
 async def main():
     """Main function to run both bot and web server"""
-    # Start web server
-    await start_web_server()
-    
     # Validate configuration
     BotConfig.validate_config()
     
@@ -198,11 +203,17 @@ async def main():
         logger.error("No Discord bot token found in environment variables")
         return
     
+    # Start web server in background
+    web_server_task = asyncio.create_task(start_web_server())
+    
     # Start bot
     try:
-        await bot.start(token)
+        bot_task = asyncio.create_task(bot.start(token))
+        
+        # Run both concurrently
+        await asyncio.gather(web_server_task, bot_task)
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Failed to start services: {e}")
 
 if __name__ == "__main__":
     try:
