@@ -12,10 +12,19 @@ class PermissionManager:
     def __init__(self):
         # Initialize database
         db_manager.initialize()
+        # In-memory fallback for no-database mode
+        self.memory_permissions = {}
     
     def initialize_guild(self, guild_id: int, guild_name: str = None):
         """Initialize permission data for a guild"""
         with db_manager.get_session() as session:
+            if session is None:
+                # No database mode - use memory
+                if guild_id not in self.memory_permissions:
+                    self.memory_permissions[guild_id] = {}
+                logger.info(f"Initialized guild {guild_id} in memory (no database)")
+                return
+                
             # Check if guild exists, if not create it
             guild = session.query(Guild).filter_by(id=guild_id).first()
             if not guild:
@@ -26,6 +35,16 @@ class PermissionManager:
     def add_permission(self, guild_id: int, user_id: int, permission_type: str):
         """Add permission for a user"""
         with db_manager.get_session() as session:
+            if session is None:
+                # No database mode - use memory
+                if guild_id not in self.memory_permissions:
+                    self.memory_permissions[guild_id] = {}
+                if user_id not in self.memory_permissions[guild_id]:
+                    self.memory_permissions[guild_id][user_id] = set()
+                self.memory_permissions[guild_id][user_id].add(permission_type)
+                logger.info(f"Added {permission_type} permission for user {user_id} in guild {guild_id} (memory)")
+                return
+                
             # Check if permission already exists
             existing = session.query(UserPermission).filter(
                 and_(
