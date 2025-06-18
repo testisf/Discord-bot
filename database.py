@@ -24,7 +24,9 @@ class DatabaseManager:
         try:
             database_url = os.getenv('DATABASE_URL')
             if not database_url:
-                raise ValueError("DATABASE_URL environment variable not set")
+                logger.warning("DATABASE_URL environment variable not set - running in no-database mode")
+                self._initialized = True
+                return
             
             # Fix postgres:// URL for SQLAlchemy compatibility
             if database_url.startswith("postgres://"):
@@ -47,6 +49,12 @@ class DatabaseManager:
                 pool_recycle=300
             )
             
+            # Test the connection first
+            from sqlalchemy import text
+            with self.engine.connect() as conn:
+                result = conn.execute(text("SELECT 1"))
+                result.fetchone()
+            
             # Create session factory
             self.Session = scoped_session(sessionmaker(bind=self.engine))
             
@@ -58,13 +66,21 @@ class DatabaseManager:
             
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
-            raise
+            logger.warning("Running bot in no-database mode - some features may be limited")
+            self.engine = None
+            self.Session = None
+            self._initialized = True
     
     @contextmanager
     def get_session(self):
         """Get database session with automatic cleanup"""
         if not self._initialized:
             self.initialize()
+        
+        if not self.Session:
+            logger.warning("No database session available - running in no-database mode")
+            yield None
+            return
         
         session = self.Session()
         try:
