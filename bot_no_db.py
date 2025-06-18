@@ -33,6 +33,7 @@ class SimpleDiscordBot(commands.Bot):
         
         # In-memory storage
         self.guild_data = {}
+        self.active_tickets = {}  # Store active tickets {channel_id: user_id}
 
     async def setup_hook(self):
         """Called when the bot is starting up"""
@@ -44,8 +45,14 @@ class SimpleDiscordBot(commands.Bot):
 
     async def on_ready(self):
         """Called when bot is ready"""
-        logger.info(f"{self.user.display_name}#{self.user.discriminator} has connected to Discord!")
+        if self.user:
+            logger.info(f"{self.user.display_name}#{self.user.discriminator} has connected to Discord!")
         logger.info(f"Bot is in {len(self.guilds)} guilds")
+        
+        # Add persistent views for tickets
+        self.add_view(TicketView())
+        self.add_view(TicketCloseView())
+        logger.info("Persistent views added successfully")
 
     async def on_guild_join(self, guild):
         """Called when bot joins a new guild"""
@@ -136,6 +143,232 @@ async def ping_command(interaction: discord.Interaction):
         color=BotConfig.COLORS['success']
     )
     await interaction.response.send_message(embed=embed)
+
+# Ticket System Classes
+class TicketView(discord.ui.View):
+    """View for ticket creation button"""
+    
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(
+        label="Create Ticket",
+        style=discord.ButtonStyle.success,
+        emoji="🎫",
+        custom_id="create_ticket"
+    )
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle ticket creation button click"""
+        await create_ticket_channel(interaction)
+
+class TicketCloseView(discord.ui.View):
+    """View for ticket closing button"""
+    
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(
+        label="Close Ticket",
+        style=discord.ButtonStyle.danger,
+        emoji="🔒",
+        custom_id="close_ticket"
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle ticket close button click"""
+        await close_ticket_channel(interaction)
+
+async def create_ticket_channel(interaction: discord.Interaction):
+    """Create a new ticket channel"""
+    try:
+        guild = interaction.guild
+        user = interaction.user
+        
+        # Check if user already has a ticket
+        existing_ticket = None
+        for channel_id, ticket_user_id in bot.active_tickets.items():
+            if ticket_user_id == user.id:
+                channel = guild.get_channel(channel_id)
+                if channel:
+                    existing_ticket = channel
+                    break
+        
+        if existing_ticket:
+            embed = discord.Embed(
+                title="❌ Ticket Already Exists",
+                description=f"You already have an open ticket: {existing_ticket.mention}",
+                color=BotConfig.COLORS['error']
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        # Get or create tickets category
+        category = None
+        for cat in guild.categories:
+            if cat.name.lower() == "tickets":
+                category = cat
+                break
+        
+        if not category:
+            category = await guild.create_category("Tickets")
+        
+        # Create ticket channel
+        channel_name = f"ticket-{user.name}".lower()
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        # Add staff roles if they exist
+        for role in guild.roles:
+            if any(staff_name in role.name.lower() for staff_name in ['staff', 'admin', 'mod', 'support']):
+                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        ticket_channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites
+        )
+        
+        # Store ticket in memory
+        bot.active_tickets[ticket_channel.id] = user.id
+        
+        # Send welcome message
+        embed = discord.Embed(
+            title="🎫 Ticket Created",
+            description=f"Hello {user.mention}! Thank you for creating a ticket.\n\nPlease describe your issue and a staff member will assist you shortly.",
+            color=BotConfig.COLORS['success']
+        )
+        embed.set_footer(text=f"Ticket created by {user.display_name}")
+        
+        close_view = TicketCloseView()
+        await ticket_channel.send(embed=embed, view=close_view)
+        
+        # Respond to interaction
+        success_embed = discord.Embed(
+            title="✅ Ticket Created",
+            description=f"Your ticket has been created: {ticket_channel.mention}",
+            color=BotConfig.COLORS['success']
+        )
+        await interaction.response.send_message(embed=success_embed, ephemeral=True)
+        
+        logger.info(f"Ticket created: {ticket_channel.name} for {user.name}")
+        
+    except Exception as e:
+        logger.error(f"Error creating ticket: {e}")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="An error occurred while creating your ticket. Please try again later.",
+            color=BotConfig.COLORS['error']
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+async def close_ticket_channel(interaction: discord.Interaction):
+    """Close a ticket channel"""
+    try:
+        channel = interaction.channel
+        
+        # Check if this is a ticket channel
+        if channel.id not in bot.active_tickets:
+            embed = discord.Embed(
+                title="❌ Not a Ticket",
+                description="This command can only be used in ticket channels.",
+                color=BotConfig.COLORS['error']
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        # Get ticket owner
+        ticket_owner_id = bot.active_tickets[channel.id]
+        ticket_owner = interaction.guild.get_member(ticket_owner_id)
+        
+        # Check permissions - only allow ticket owner or members with manage_channels
+        user_can_close = (interaction.user.id == ticket_owner_id)
+        if hasattr(interaction.user, 'guild_permissions'):
+            user_can_close = user_can_close or interaction.user.guild_permissions.manage_channels
+        
+        if not user_can_close:
+            embed = discord.Embed(
+                title="❌ No Permission",
+                description="Only the ticket owner or staff can close this ticket.",
+                color=BotConfig.COLORS['error']
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        # Send closing message
+        embed = discord.Embed(
+            title="🔒 Ticket Closing",
+            description=f"This ticket is being closed by {interaction.user.mention}.\n\nThe channel will be deleted in 5 seconds.",
+            color=BotConfig.COLORS['warning']
+        )
+        await interaction.response.send_message(embed=embed)
+        
+        # Remove from active tickets
+        del bot.active_tickets[channel.id]
+        
+        # Wait and delete channel
+        await asyncio.sleep(5)
+        await channel.delete(reason=f"Ticket closed by {interaction.user.name}")
+        
+        logger.info(f"Ticket closed: {channel.name} by {interaction.user.name}")
+        
+    except Exception as e:
+        logger.error(f"Error closing ticket: {e}")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="An error occurred while closing the ticket.",
+            color=BotConfig.COLORS['error']
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="sendticket", description="Send ticket creation message")
+@discord.app_commands.describe(channel="Channel to send the ticket message to")
+async def sendticket(interaction: discord.Interaction, channel: discord.TextChannel = None):
+    """Send ticket creation message with button"""
+    # Check if user has manage_channels permission
+    has_permission = False
+    if hasattr(interaction.user, 'guild_permissions'):
+        has_permission = interaction.user.guild_permissions.manage_channels
+    
+    if not has_permission:
+        embed = discord.Embed(
+            title="❌ No Permission",
+            description="You need the 'Manage Channels' permission to use this command.",
+            color=BotConfig.COLORS['error']
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    target_channel = channel or interaction.channel
+    
+    embed = discord.Embed(
+        title="🎫 Support Tickets",
+        description="Need help? Click the button below to create a support ticket!\n\nOur staff team will assist you as soon as possible.",
+        color=BotConfig.COLORS['primary']
+    )
+    embed.add_field(
+        name="How it works:",
+        value="• Click 'Create Ticket'\n• A private channel will be created\n• Describe your issue\n• Wait for staff assistance",
+        inline=False
+    )
+    embed.set_footer(text="Support System • Click the button below")
+    
+    view = TicketView()
+    await target_channel.send(embed=embed, view=view)
+    
+    success_embed = discord.Embed(
+        title="✅ Ticket Message Sent",
+        description=f"Ticket creation message sent to {target_channel.mention}",
+        color=BotConfig.COLORS['success']
+    )
+    await interaction.response.send_message(embed=success_embed, ephemeral=True)
 
 async def on_application_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
     """Handle application command errors"""
