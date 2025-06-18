@@ -1,0 +1,6 @@
+aiohttp>=3.12.13
+discord.py>=2.5.2
+psycopg2-binary>=2.9.10
+requests>=2.32.4
+sqlalchemy>=2.0.41
+trafilatura>=2.0.0
