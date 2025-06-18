@@ -174,8 +174,9 @@ async def start_web_server():
     app.router.add_get('/', health_check)
     app.router.add_get('/status', status_endpoint)
     
-    # Render uses PORT environment variable, default to 10000 for Render
+    # Render uses PORT environment variable, default to 10000 for Render/Railway
     port = int(os.getenv('PORT', 10000))
+    logger.info(f"Starting web server on 0.0.0.0:{port}")
     
     runner = web.AppRunner(app)
     await runner.setup()
