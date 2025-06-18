@@ -144,6 +144,39 @@ async def ping_command(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="verify", description="Verify your Roblox account (simplified version)")
+async def verify_command(interaction: discord.Interaction, roblox_username: str, user: discord.Member = None):
+    """Simplified verify command for no-database mode"""
+    target_user = user or interaction.user
+    
+    embed = discord.Embed(
+        title="🔍 Roblox Verification",
+        description="This is a simplified verification system running without database storage.",
+        color=BotConfig.COLORS['info']
+    )
+    embed.add_field(
+        name="User", 
+        value=target_user.mention, 
+        inline=True
+    )
+    embed.add_field(
+        name="Roblox Username", 
+        value=roblox_username, 
+        inline=True
+    )
+    embed.add_field(
+        name="Status", 
+        value="⚠️ Database verification unavailable in no-DB mode", 
+        inline=False
+    )
+    embed.add_field(
+        name="Note", 
+        value="For full verification features, ensure database connection is available.", 
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 # Ticket System Classes
 class TicketView(discord.ui.View):
     """View for ticket creation button"""
