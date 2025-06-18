@@ -257,6 +257,9 @@ class RobloxVerification:
         code = self.generate_verification_code()
         
         with db_manager.get_session() as session:
+            if session is None:
+                logger.warning("No database session available - running in no-database mode")
+                return code
             # Remove any existing pending verification for this user
             existing = session.query(PendingVerification).filter_by(discord_user_id=discord_user_id).first()
             if existing:
@@ -279,6 +282,9 @@ class RobloxVerification:
     async def complete_verification(self, discord_user_id: int) -> Tuple[bool, Optional[str]]:
         """Complete verification by checking if code is in Roblox profile"""
         with db_manager.get_session() as session:
+            if session is None:
+                logger.warning("No database session available - running in no-database mode")
+                return False, "Database verification unavailable in no-database mode"
             # Get pending verification
             pending = session.query(PendingVerification).filter_by(discord_user_id=discord_user_id).first()
             if not pending:
@@ -329,6 +335,9 @@ class RobloxVerification:
     def get_verified_user(self, guild_id: int, discord_user_id: int) -> Optional[Dict[str, Any]]:
         """Get verified user data"""
         with db_manager.get_session() as session:
+            if session is None:
+                logger.warning("No database session available - running in no-database mode")
+                return None
             verification = session.query(RobloxVerificationModel).filter(
                 and_(
                     RobloxVerificationModel.guild_id == guild_id,
@@ -348,6 +357,9 @@ class RobloxVerification:
     def get_pending_verification(self, discord_user_id: int) -> Optional[Dict[str, Any]]:
         """Get pending verification data"""
         with db_manager.get_session() as session:
+            if session is None:
+                logger.warning("No database session available - running in no-database mode")
+                return None
             pending = session.query(PendingVerification).filter_by(discord_user_id=discord_user_id).first()
             
             if pending:
@@ -363,6 +375,9 @@ class RobloxVerification:
     def cancel_verification(self, discord_user_id: int) -> bool:
         """Cancel pending verification"""
         with db_manager.get_session() as session:
+            if session is None:
+                logger.warning("No database session available - running in no-database mode")
+                return False
             pending = session.query(PendingVerification).filter_by(discord_user_id=discord_user_id).first()
             if pending:
                 session.delete(pending)
