@@ -21,10 +21,12 @@ DATABASE_URL=postgresql://username:password@host:port/database
 1. Create a new Web Service on Render
 2. Connect your GitHub repository
 3. Set build command: `pip install -r requirements.txt`
-4. Set start command: `python bot.py`
+4. Set start command: `python main.py`
 5. Add environment variables:
    - `DISCORD_BOT_TOKEN` - Your Discord bot token
-   - `DATABASE_URL` - PostgreSQL database URL
+   - `DATABASE_URL` - PostgreSQL database URL (optional - bot runs without database)
+
+**Important**: The bot will automatically bind to the PORT environment variable provided by Render. The web server starts on 0.0.0.0 which is required for Render to detect the service.
 
 ## Heroku Deployment
 
